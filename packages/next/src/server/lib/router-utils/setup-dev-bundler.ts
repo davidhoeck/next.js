@@ -113,6 +113,7 @@ import {
 import { normalizeMetadataRoute } from '../../../lib/metadata/get-metadata-route'
 import { clearModuleContext } from '../render-server'
 import type { ActionManifest } from '../../../build/webpack/plugins/flight-client-entry-plugin'
+import type { LodableManifest } from '../../load-components'
 
 const wsServer = new ws.Server({ noServer: true })
 
@@ -129,10 +130,6 @@ type SetupOpts = {
   >
   nextConfig: NextConfigComplete
   port: number
-}
-
-interface LodableManifest {
-  [k: string]: { id: string | number; files: string[] }
 }
 
 async function verifyTypeScript(opts: SetupOpts) {
@@ -560,7 +557,7 @@ async function startWatcher(opts: SetupOpts) {
         )
       )
     }
-    
+
     async function loadLodableManifest(
       pageName: string,
       type: 'app' | 'pages' = 'pages'
@@ -707,7 +704,7 @@ async function startWatcher(opts: SetupOpts) {
 
       return manifest
     }
-    
+
     function mergeLodableManifests(manifests: Iterable<LodableManifest>) {
       const manifest: LodableManifest = {}
       for (const m of manifests) {
