@@ -30,7 +30,9 @@ export async function loadEntrypoint(
     | 'pages-api'
     | 'app-page'
     | 'app-route'
-    | 'edge-app-route',
+    | 'edge-app-route'
+    | 'edge-ssr'
+    | 'edge-ssr-app',
   replacements: Record<`VAR_${string}`, string>,
   injections?: Record<string, string>
 ): Promise<string> {
