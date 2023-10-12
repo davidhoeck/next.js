@@ -18,6 +18,7 @@ export type StaticGenerationContext = {
     isDraftMode?: boolean
     isServerAction?: boolean
     waitUntil?: Promise<any>
+    useUnstablePostpone: boolean
 
     /**
      * A hack around accessing the store value outside the context of the
@@ -74,7 +75,7 @@ export const StaticGenerationAsyncStorageWrapper: AsyncStorageWrapper<
       isPrerendering: renderOpts.nextExport,
       fetchCache: renderOpts.fetchCache,
       isOnDemandRevalidate: renderOpts.isOnDemandRevalidate,
-
+      useUnstablePostpone: renderOpts.useUnstablePostpone,
       isDraftMode: renderOpts.isDraftMode,
     }
 

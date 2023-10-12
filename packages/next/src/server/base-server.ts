@@ -243,6 +243,7 @@ type BaseRenderOpts = {
   appDirDevErrorLogger?: (err: any) => Promise<void>
   strictNextHead: boolean
   isExperimentalCompile?: boolean
+  useUnstablePostpone: boolean
 }
 
 export interface BaseRequestHandler {
@@ -491,6 +492,7 @@ export default abstract class Server<ServerOptions extends Options = Options> {
 
       // @ts-expect-error internal field not publicly exposed
       isExperimentalCompile: this.nextConfig.experimental.isExperimentalCompile,
+      useUnstablePostpone: this.nextConfig.experimental.ppr === true,
     }
 
     // Initialize next/config with the environment configuration
@@ -1967,10 +1969,15 @@ export default abstract class Server<ServerOptions extends Options = Options> {
           | 'https',
       })
 
-    const doRender: () => Promise<ResponseCacheEntry | null> = async () => {
+    const doRender: (
+      postponed?: string
+    ) => Promise<ResponseCacheEntry | null> = async (postponed?: string) => {
       // In development, we always want to generate dynamic HTML.
-      const supportsDynamicHTML =
-        (!isDataReq && opts.dev) || !(isSSG || hasStaticPaths)
+
+      // FIXME: remove this before committing
+      // const supportsDynamicHTML =
+      //   (!isDataReq && opts.dev) || !(isSSG || hasStaticPaths) || !!postponed
+      const supportsDynamicHTML = !(isSSG || hasStaticPaths) || !!postponed
 
       let headers: OutgoingHttpHeaders | undefined
 
@@ -2026,6 +2033,7 @@ export default abstract class Server<ServerOptions extends Options = Options> {
         isOnDemandRevalidate,
         isDraftMode: isPreviewMode,
         isServerAction,
+        postponed,
       }
 
       // Legacy render methods will return a render result that needs to be
@@ -2039,6 +2047,7 @@ export default abstract class Server<ServerOptions extends Options = Options> {
           params: opts.params,
           prerenderManifest,
           renderOpts: {
+            useUnstablePostpone: this.nextConfig.experimental.ppr === true,
             originalPathname: components.ComponentMod.originalPathname,
             supportsDynamicHTML,
             incrementalCache,
@@ -2248,6 +2257,7 @@ export default abstract class Server<ServerOptions extends Options = Options> {
           kind: 'PAGE',
           html: result,
           pageData: metadata.pageData,
+          postponed: metadata.postponed,
           headers,
           status: isAppPath ? res.statusCode : undefined,
         },
@@ -2356,10 +2366,12 @@ export default abstract class Server<ServerOptions extends Options = Options> {
               const html = await this.getFallback(
                 locale ? `/${locale}${pathname}` : pathname
               )
+
               return {
                 value: {
                   kind: 'PAGE',
                   html: RenderResult.fromStatic(html),
+                  postponed: undefined,
                   pageData: {},
                 },
               }
@@ -2513,13 +2525,50 @@ export default abstract class Server<ServerOptions extends Options = Options> {
           res.statusCode = cachedData.status
         }
 
+        if (isDataReq) {
+          return {
+            type: 'rsc',
+            body: RenderResult.fromStatic(cachedData.pageData as string),
+            revalidateOptions,
+          }
+        }
+
+        let body = cachedData.html
+
+        // If the request has a postponed state, let's try and resume it...
+        if (cachedData.postponed) {
+          const transformer = new TransformStream<Uint8Array, Uint8Array>()
+
+          setImmediate(async () => {
+            const result = await doRender(cachedData.postponed)
+            if (!result) {
+              throw new Error('Invariant: Expected a result to be returned')
+            }
+
+            if (result.value?.kind !== 'PAGE') {
+              throw new Error('Invariant: Expected a page response')
+            }
+
+            try {
+              // Pipe the resume result to the transformer.
+              await result.value.html.pipeTo(transformer.writable)
+            } catch (err) {
+              console.error('Error while piping to transformer', err)
+            }
+          })
+
+          body.appendWith(transformer.readable)
+        } else {
+          console.log('NO POSTPONED STATE FOUND', cachedData)
+        }
+
         return {
-          type: isDataReq ? 'rsc' : 'html',
-          body: isDataReq
-            ? RenderResult.fromStatic(cachedData.pageData as string)
-            : cachedData.html,
+          type: 'html',
+          body,
           revalidateOptions,
         }
+      } else {
+        console.log('NOT APP PATH', cachedData)
       }
 
       return {

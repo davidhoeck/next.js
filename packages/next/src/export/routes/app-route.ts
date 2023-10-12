@@ -33,7 +33,8 @@ export async function exportAppRoute(
   incrementalCache: IncrementalCache | undefined,
   distDir: string,
   htmlFilepath: string,
-  fileWriter: FileWriter
+  fileWriter: FileWriter,
+  useUnstablePostpone: boolean
 ): Promise<ExportRouteResult> {
   // Ensure that the URL is absolute.
   req.url = `http://localhost:3000${req.url}`
@@ -60,6 +61,7 @@ export async function exportAppRoute(
       notFoundRoutes: [],
     },
     renderOpts: {
+      useUnstablePostpone,
       originalPathname: page,
       nextExport: true,
       supportsDynamicHTML: false,

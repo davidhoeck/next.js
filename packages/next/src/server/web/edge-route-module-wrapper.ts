@@ -109,6 +109,7 @@ export class EdgeRouteModuleWrapper {
       },
       renderOpts: {
         supportsDynamicHTML: true,
+        useUnstablePostpone: false,
       },
     }
 

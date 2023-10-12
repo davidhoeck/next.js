@@ -144,7 +144,7 @@ module.exports = ({ dev, turbo, bundleType, experimental }) => {
     devtool: 'source-map',
     optimization: {
       moduleIds: 'named',
-      minimize: true,
+      minimize: process.env.NODE_ENV === 'production',
       concatenateModules: true,
       minimizer: [
         new TerserPlugin({

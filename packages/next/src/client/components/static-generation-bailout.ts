@@ -1,3 +1,4 @@
+import React from 'react'
 import { DynamicServerError } from './hooks-server-context'
 import { staticGenerationAsyncStorage } from './static-generation-async-storage.external'
 
@@ -36,7 +37,7 @@ export const staticGenerationBailout: StaticGenerationBailout = (
     )
   }
 
-  if (staticGenerationStore) {
+  if (staticGenerationStore && !staticGenerationStore?.useUnstablePostpone) {
     staticGenerationStore.revalidate = 0
 
     if (!opts?.dynamic) {
@@ -47,19 +48,28 @@ export const staticGenerationBailout: StaticGenerationBailout = (
   }
 
   if (staticGenerationStore?.isStaticGeneration) {
-    const err = new DynamicServerError(
-      formatErrorMessage(reason, {
-        ...opts,
-        // this error should be caught by Next to bail out of static generation
-        // in case it's uncaught, this link provides some additional context as to why
-        link: 'https://nextjs.org/docs/messages/dynamic-server-error',
-      })
-    )
+    const message = formatErrorMessage(reason, {
+      ...opts,
+      // this error should be caught by Next to bail out of static generation
+      // in case it's uncaught, this link provides some additional context as to why
+      link: 'https://nextjs.org/docs/messages/dynamic-server-error',
+    })
+
+    if (staticGenerationStore?.useUnstablePostpone) {
+      console.log('SGB: (postponed)')
+      React.unstable_postpone(message)
+    }
+
+    console.log('SGB: (de-opt)')
+
+    const err = new DynamicServerError(message)
     staticGenerationStore.dynamicUsageDescription = reason
     staticGenerationStore.dynamicUsageStack = err.stack
 
     throw err
   }
+
+  console.log('SGB: (dynamic)')
 
   return false
 }

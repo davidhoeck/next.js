@@ -10,11 +10,14 @@ import type {
 } from './types'
 import type { StaticGenerationStore } from '../../client/components/static-generation-async-storage.external'
 import type { RequestStore } from '../../client/components/request-async-storage.external'
+import type { NextParsedUrlQuery } from '../request-meta'
+import type { LoaderTree } from '../lib/app-dir-module'
+import type { AppPageModule } from '../future/route-modules/app-page/module'
+import type { ClientReferenceManifest } from '../../build/webpack/plugins/flight-manifest-plugin'
 
 import React from 'react'
-import { createServerComponentRenderer } from './create-server-components-renderer'
 
-import type { NextParsedUrlQuery } from '../request-meta'
+import { createServerComponentRenderer } from './create-server-components-renderer'
 import RenderResult, { type RenderResultMetadata } from '../render-result'
 import {
   renderToInitialFizzStream,
@@ -33,7 +36,6 @@ import {
 import { createMetadataComponents } from '../../lib/metadata/metadata'
 import { RequestAsyncStorageWrapper } from '../async-storage/request-async-storage-wrapper'
 import { StaticGenerationAsyncStorageWrapper } from '../async-storage/static-generation-async-storage-wrapper'
-import type { LoaderTree } from '../lib/app-dir-module'
 import { isNotFoundError } from '../../client/components/not-found'
 import {
   getURLFromRedirectError,
@@ -61,12 +63,11 @@ import { appendMutableCookies } from '../web/spec-extension/adapters/request-coo
 import { createServerInsertedHTML } from './server-inserted-html'
 import { getRequiredScripts } from './required-scripts'
 import { addPathPrefix } from '../../shared/lib/router/utils/add-path-prefix'
-import type { AppPageModule } from '../future/route-modules/app-page/module'
-import type { ClientReferenceManifest } from '../../build/webpack/plugins/flight-manifest-plugin'
 import { makeGetServerInsertedHTML } from './make-get-server-inserted-html'
 import { walkTreeWithFlightRouterState } from './walk-tree-with-flight-router-state'
 import { createComponentTree } from './create-component-tree'
 import { getAssetQueryString } from './get-asset-query-string'
+import { createStaticRenderer } from './static/static-renderer'
 
 export type GetDynamicParamFromSegment = (
   // [slug] / [[slug]] / [...slug]
@@ -519,10 +520,12 @@ async function renderToHTMLOrFlightImpl(
   }
 
   const isStaticGeneration = staticGenerationStore.isStaticGeneration
+
   // During static generation we need to call the static generation bailout when reading searchParams
   const providedSearchParams = isStaticGeneration
     ? createSearchParamsBailoutProxy()
     : query
+
   const searchParamsProps = { searchParams: providedSearchParams }
 
   /**
@@ -661,6 +664,7 @@ async function renderToHTMLOrFlightImpl(
         serverComponentsRenderOpts,
         nonce
       )
+
       const content = (
         <HeadManagerContext.Provider
           value={{
@@ -674,25 +678,68 @@ async function renderToHTMLOrFlightImpl(
         </HeadManagerContext.Provider>
       )
 
+      if (pagePath === '/blog/[slug]') {
+        const util = require('util')
+        console.log(
+          '<content />',
+          pagePath,
+          staticGenerationStore.isStaticGeneration ? '(static)' : '(dynamic)',
+          util.inspect(content, {
+            showHidden: true,
+            depth: null,
+            colors: true,
+          })
+        )
+        // console.log(
+        //   '<HeadManagerContext.Provider />',
+        //   util.inspect(
+        //     <HeadManagerContext.Provider
+        //       value={{
+        //         appDir: true,
+        //         nonce,
+        //       }}
+        //     />,
+        //     {
+        //       showHidden: true,
+        //       depth: null,
+        //       colors: true,
+        //     }
+        //   )
+        // )
+
+        if (renderOpts.postponed) {
+          console.log('postponedState:', renderOpts.postponed)
+        }
+      }
+
       const getServerInsertedHTML = makeGetServerInsertedHTML({
         polyfills,
         renderServerInsertedHTML,
       })
 
+      const renderer = createStaticRenderer({
+        useUnstablePostpone: renderOpts.useUnstablePostpone,
+        isStaticGeneration: staticGenerationStore.isStaticGeneration,
+        postponed: renderOpts.postponed
+          ? JSON.parse(renderOpts.postponed)
+          : null,
+      })
+
       try {
-        const fizzStream = await renderToInitialFizzStream({
-          ReactDOMServer: require('react-dom/server.edge'),
-          element: content,
-          streamOptions: {
-            onError: htmlRendererErrorHandler,
-            nonce,
-            // Include hydration scripts in the HTML
-            bootstrapScripts: [bootstrapScript],
-            experimental_formState: formState,
-          },
+        const renderStream = await renderer.render(content, {
+          onError: htmlRendererErrorHandler,
+          nonce,
+          bootstrapScripts: [bootstrapScript],
+          experimental_formState: formState,
         })
 
-        const result = await continueFizzStream(fizzStream, {
+        const { stream, postponed } = renderStream
+
+        if (postponed) {
+          extraRenderResultMeta.postponed = JSON.stringify(postponed)
+        }
+
+        return await continueFizzStream(stream, {
           inlinedDataStream:
             serverComponentsRenderOpts.inlinedDataTransformStream.readable,
           generateStaticHTML:
@@ -700,9 +747,10 @@ async function renderToHTMLOrFlightImpl(
           getServerInsertedHTML: () => getServerInsertedHTML(allCapturedErrors),
           serverInsertedHTMLToHead: true,
           validateRootLayout,
+          // If the render has postponed content, then don't close the tags
+          // as the renderer will do it automatically.
+          closeTags: !postponed,
         })
-
-        return result
       } catch (err: any) {
         if (
           err.code === 'NEXT_STATIC_GEN_BAILOUT' ||
@@ -850,6 +898,7 @@ async function renderToHTMLOrFlightImpl(
             getServerInsertedHTML: () => getServerInsertedHTML([]),
             serverInsertedHTMLToHead: true,
             validateRootLayout,
+            closeTags: true,
           })
         } catch (finalErr: any) {
           if (

@@ -1345,6 +1345,7 @@ export async function renderToHTMLImpl(
           generateStaticHTML: true,
           getServerInsertedHTML,
           serverInsertedHTMLToHead: false,
+          closeTags: true,
         })
       }
     )

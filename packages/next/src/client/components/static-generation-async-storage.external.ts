@@ -24,6 +24,7 @@ export interface StaticGenerationStore {
 
   revalidate?: false | number
   forceStatic?: boolean
+  useUnstablePostpone: boolean
   dynamicShouldError?: boolean
   pendingRevalidates?: Promise<any>[]
 

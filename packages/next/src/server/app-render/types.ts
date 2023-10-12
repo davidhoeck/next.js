@@ -134,6 +134,8 @@ export interface RenderOptsPartial {
   serverActionsBodySizeLimit?: SizeLimit
   params?: ParsedUrlQuery
   isPrefetch?: boolean
+  useUnstablePostpone: boolean
+  postponed?: string
 }
 
 export type RenderOpts = LoadComponentsReturnType<AppPageModule> &

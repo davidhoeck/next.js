@@ -16,6 +16,7 @@ export type RenderResultMetadata = {
   fetchMetrics?: StaticGenerationStore['fetchMetrics']
   fetchTags?: string
   waitUntil?: Promise<any>
+  postponed?: string
 }
 
 type RenderResultResponse = ReadableStream<Uint8Array> | string | null
@@ -39,7 +40,7 @@ export default class RenderResult {
    * dynamic response. If it's null, then the response was not found or was
    * already sent.
    */
-  private readonly response: RenderResultResponse
+  private response: RenderResultResponse
 
   /**
    * Creates a new RenderResult instance from a static response.
@@ -103,6 +104,59 @@ export default class RenderResult {
     }
 
     return this.response
+  }
+
+  public appendWith(
+    readable: ReadableStream<Uint8Array>,
+    preventClose?: boolean
+  ) {
+    if (this.response === null) {
+      throw new Error('Invariant: response is null. This is a bug in Next.js')
+    }
+
+    const response = this.response
+    const transformer = new TransformStream<Uint8Array, Uint8Array>({
+      start: (controller) => {
+        // If the response was a string append it to the start of the stream.
+        if (typeof response === 'string') {
+          controller.enqueue(new TextEncoder().encode(response))
+        }
+      },
+    })
+
+    this.response = transformer.readable
+
+    setImmediate(async () => {
+      try {
+        // If the response was a stream, pipe it to the transformer first,
+        // followed by the new readable stream.
+        if (typeof response !== 'string') {
+          await response.pipeTo(transformer.writable, { preventClose: true })
+        }
+
+        await readable.pipeTo(transformer.writable, { preventClose })
+      } catch (err) {
+        console.error('Error in appendWith: ', err)
+        transformer.writable.abort(err)
+      }
+    })
+  }
+
+  public async pipeTo(
+    writable: WritableStream<Uint8Array>,
+    preventClose?: boolean
+  ): Promise<void> {
+    if (typeof this.response === 'string') {
+      throw new Error(
+        'Invariant: static responses cannot be piped. This is a bug in Next.js'
+      )
+    }
+
+    if (this.response === null) {
+      throw new Error('Invariant: response is null. This is a bug in Next.js')
+    }
+
+    return this.response.pipeTo(writable, { preventClose })
   }
 
   public async pipe(res: PipeTarget<Uint8Array>): Promise<void> {
